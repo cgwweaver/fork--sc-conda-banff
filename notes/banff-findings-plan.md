@@ -196,3 +196,24 @@ Six questions. Ordered by how much they change the recipe.
 3. Q1 + Q2 (yes/no-ish), then Q3–Q6 (technical, can answer later or async).
 4. Link to draft recipe once it exists.
 - Channel: GitHub issue on StatCan/gensol-banff (public, discoverable) **or** email Banff Support (`statcan.banff-banff.statcan@statcan.gc.ca`). As a StatCan employee, maybe internal email/Teams first, then public issue.
+
+---
+
+## 6. Build-attempt findings (2026-10-15)
+
+Decisions assumed for first recipe attempt (conservative): **keep upstream dep caps**, **no PyPI sdist → GitHub tag tarball**, **only GLPK (+ StatCan's own STC libs) bundled**, jansson + nanoarrow from conda-forge.
+
+- **Tag vs main**: `main` is 1 commit past `3.1.3` (FR release notes only). Recipe builds the tag.
+- **GitHub tarball download blocked in Claude's cloud env** (proxy 403 on archive/codeload for this repo; `git clone` works). Local tests use `git archive` of tag `3.1.3` → identical file contents, but **sha256 of GitHub's real tarball must be confirmed elsewhere** (fork GH Actions or colin locally: `curl -L <url> | sha256sum`).
+- **Platforms**:
+  - **macOS: skip.** `Python/src/banff/_common/src/proc/loader.py` only handles `Windows` and `Linux` (`platform.system()`), path hardcoded `bin/<linux|windows>/x64/`. No darwin branch → upstream limitation, valid skip reason.
+  - **Windows: skip initially.** Build is Visual Studio `.sln`/`.vcxproj` + `build.cmd`, separate from the Makefile path. Follow-up.
+  - **Linux aarch64** (feedstock-only, later): loader path says `x64` but it's just a dir name → would probably work. Not now.
+- **en/fr**: loader loads `lib<proc>_en.so` or `lib<proc>_fr.so` by language → recipe must build **both** (`make c_proc_en` + `make c_proc_fr`).
+- **Charset blocker**: `C/build/unix-like/make_include/MakeDefaults` sets `-O3 -finput-charset=WINDOWS-1252 -fexec-charset=UTF-8`. **conda-forge GCC 14.4 and 15.3 are built without iconv** → `cc1: error: no iconv implementation, cannot convert from WINDOWS-1252 to UTF-8`. Ubuntu system GCC works (has iconv).
+  - 37 non-GLPK C/H files contain non-ASCII (Latin-1/CP1252) bytes (French accents in messages).
+  - **Fix in build.sh**: transcode compiled sources CP1252 → UTF-8 before `make`, then build with `-finput-charset=UTF-8`. Semantically identical to what upstream GCC does internally (it reads all as CP1252 and emits UTF-8).
+  - Worth suggesting upstream: store sources as UTF-8 → flag not needed, any compiler works.
+- **jansson Makefile runs `git submodule init`** during build → fails in a tarball build (no `.git`). Must bypass (link conda-forge `jansson` instead).
+- **conda-forge libs available** (checked by installing): `jansson` 2.15.1 → `include/jansson.h`, `lib/libjansson.so.4`; `libnanoarrow` 0.9.0 → `include/nanoarrow/*.h`, `lib/libnanoarrow_shared.so`, `lib/libnanoarrow_static.a` (+ ipc), **not namespaced** (`NANOARROW_NAMESPACE` commented out).
+- **Tools**: rattler-build 0.76.1, conda-smithy (linter), micromamba 2.x, all from conda-forge.
