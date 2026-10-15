@@ -141,6 +141,7 @@ Six questions. Ordered by how much they change the recipe.
 - **Background**: PyPI currently has only built wheels. An sdist = `banff-3.1.3.tar.gz` with full source. `python -m build --sdist`, ~one line in their release workflow.
 - **Why it matters**:
   - GitHub tag tarball **omits git submodules** (jansson, nanoarrow) → recipe needs 3 `source:` entries pinned to exact submodule commits, and must be updated by hand every time they bump a submodule. Bot can't do that.
+  - *Update (§7): no longer an issue for the recipe: jansson + nanoarrow now come from conda-forge, so the plain tag tarball is enough. An sdist would still help pip users.*
   - An sdist that includes submodule contents → single source, bot auto-updates cleanly.
   - Also helps pip users on platforms without a wheel (macOS, Linux ARM): pip can build from source.
 - **Pros**: simpler recipe, less maintenance, smoother bot bumps, benefits pip users too.
@@ -208,12 +209,13 @@ Decisions assumed for first recipe attempt (conservative): **keep upstream dep c
 - **Platforms**:
   - **macOS: skip.** `Python/src/banff/_common/src/proc/loader.py` only handles `Windows` and `Linux` (`platform.system()`), path hardcoded `bin/<linux|windows>/x64/`. No darwin branch → upstream limitation, valid skip reason.
   - **Windows: skip initially.** Build is Visual Studio `.sln`/`.vcxproj` + `build.cmd`, separate from the Makefile path. Follow-up.
-  - **Linux aarch64** (feedstock-only, later): loader path says `x64` but it's just a dir name → would probably work. Not now.
+  - **Linux aarch64** (feedstock-only, later): ~~would probably work~~ *Correction (§8): would NOT work as-is: every Makefile hardcodes `-m64` (rejected by aarch64 GCC) and make_proc runs `ldd` (fails in cross builds). Needs patch changes; recipe skips `not (linux and x86_64)`.*
 - **en/fr**: loader loads `lib<proc>_en.so` or `lib<proc>_fr.so` by language → recipe must build **both** (`make c_proc_en` + `make c_proc_fr`).
 - **Charset blocker**: `C/build/unix-like/make_include/MakeDefaults` sets `-O3 -finput-charset=WINDOWS-1252 -fexec-charset=UTF-8`. **conda-forge GCC 14.4 and 15.3 are built without iconv** → `cc1: error: no iconv implementation, cannot convert from WINDOWS-1252 to UTF-8`. Ubuntu system GCC works (has iconv).
   - 37 non-GLPK C/H files contain non-ASCII (Latin-1/CP1252) bytes (French accents in messages).
   - **Fix in build.sh**: transcode compiled sources CP1252 → UTF-8 before `make`, then build with `-finput-charset=UTF-8`. Semantically identical to what upstream GCC does internally (it reads all as CP1252 and emits UTF-8).
   - Worth suggesting upstream: store sources as UTF-8 → flag not needed, any compiler works.
+  - *Caveat (§8): if upstream does that, the recipe's transcode step must go. build.sh now stops with an error if `MakeDefaults` changes, and the French-message tests (`features/nls/test_nls.py`) catch garbled text.*
 - **jansson Makefile runs `git submodule init`** during build → fails in a tarball build (no `.git`). Must bypass (link conda-forge `jansson` instead).
 - **conda-forge libs available** (checked by installing): `jansson` 2.15.1 → `include/jansson.h`, `lib/libjansson.so.4`; `libnanoarrow` 0.9.0 → `include/nanoarrow/*.h`, `lib/libnanoarrow_shared.so`, `lib/libnanoarrow_static.a` (+ ipc), **not namespaced** (`NANOARROW_NAMESPACE` commented out).
 - **Tools**: rattler-build 0.76.1, conda-smithy (linter), micromamba 2.x, all from conda-forge.
@@ -251,10 +253,10 @@ Recipe: `recipes/banff/` on branch `claude/banff-conda-feedstock-9ueg9w` → **P
   - 1 needs the `fr_CA` OS locale (`test_numeric_locale`).
   - 6 are a **real upstream bug** ↓
 - **🐛 Upstream bug: duckdb ≥1.4 breaks `exclude_where_*` options.** `processing.py:139` does `duckdb…arrow().num_rows`; since duckdb 1.4 `.arrow()` returns a `RecordBatchReader` (no `num_rows`) → `AttributeError`. Verified: duckdb 1.3.2 → pass, 1.4.4 → fail. Affects **pip users too** (upstream cap is `<2`).
-  - Recipe pins `duckdb >=0.7.0,<1.4` (tighter than upstream, commented). Solvable for py311–313 (gets duckdb 1.3.2).
-  - **Report upstream** (one-line fix: `.fetch_arrow_table().num_rows` or `.arrow().read_all().num_rows`).
+  - ~~Recipe pins `duckdb >=0.7.0,<1.4`~~ *Update (§8): replaced by patch 0002 (`.arrow()` → `.to_arrow_table()` at 3 call sites in `processing.py`: lines 139, 154, 236) and upstream's `<2` bound restored. `to_arrow_table()` exists since duckdb 0.7.1; `fetch_arrow_table()` is deprecated in 1.5 and `.arrow().read_all()` breaks on 1.3, so neither of those works.*
+  - **Report upstream** with the same 3-line diff (the PyPI wheel has the bug too; `remove_rows_where` with Arrow input also silently returns the wrong type).
 - **🐛 Upstream bug: `import banff` crashes under `LC_ALL=C`** (`nls.py:124` calls `.lower()` on `None`, only `IndexError` caught). Doesn't hit the recipe tests, but worth reporting.
-- **Python 3.14 skip**: caused by `pyarrow<19` and `nanoarrow<0.7` (no py3.14 builds on conda-forge); pandas<3 and duckdb are fine. conda-forge builds py3.11–3.14 (3.10 dropped).
+- **Python 3.14 skip**: caused by `pyarrow<19` and `nanoarrow<0.7` (no py3.14 builds on conda-forge); pandas<3 is fine, and duckdb is fine now that it's patched instead of pinned (python-duckdb for 3.14 starts at 1.4). conda-forge builds py3.11–3.14 (3.10 dropped).
 - **Licenses**: bundled GLPK itself bundles AMD + COLAMD (LGPL-2.1-or-later), MiniSat (MIT), zlib 1.2.5 (Zlib), all statically linked, **with no license files in banff's repo**. Recipe declares `GPL-3.0-or-later AND LGPL-2.1-or-later AND MIT AND Zlib` and ships the texts in `recipes/banff/licenses/` (copied from GNU GLPK 4.53 tarball, identical to 5.0's).
 - **GLPK fork detail**: ~10 files differ from pristine GLPK 4.53 (`glpk.h`, `env/env.c`, `glpapi06.c`, `proxy/*`, `cglib/cfg1.c`, `misc/keller.c`) and it re-adds the old `lpx` API → confirms it can't be swapped for conda-forge `glpk` 5.0.
 - **Linking result**: our `.so` files need `libjansson.so.4` + `libnanoarrow_shared.so` from the env (rpath `$ORIGIN/…`), upstream's are fully static (only libc/libm). Fine for conda; that's the point of unbundling.
@@ -264,7 +266,7 @@ Recipe: `recipes/banff/` on branch `claude/banff-conda-feedstock-9ueg9w` → **P
 ### nanoarrow: unbundled (as decided) — but reconsider?
 Research agent recommends **keeping nanoarrow vendored at 0.6.0** instead:
 - nanoarrow is explicitly "intended to be vendored"; conda-forge's own Python `nanoarrow` package vendors it.
-- conda-forge `libnanoarrow` only exists as 0.9.0, unversioned SONAME, run_exports pin `>=0.9.0,<0.9.1` with no migrator → every nanoarrow patch release needs a manual banff rebuild.
+- conda-forge `libnanoarrow` only exists as 0.9.0, unversioned SONAME, run_exports pin `>=0.9.0,<0.9.1` with no migrator. ~~→ every nanoarrow patch release needs a manual banff rebuild~~ *Correction (§8): not really. Nothing else on conda-forge depends on libnanoarrow, old builds stay on the channel, and a simulated 0.10 release still solves (picks 0.9.0). It only conflicts with a package that itself needs ≥0.10.*
 - 0.6.0 = what upstream tested, and matches the Python `nanoarrow<0.7` cap.
 - Cost: second `source:` (Apache tarball, sha256 `e4a02ac5…485d1`), a cmake step, C++ compiler in build, Apache-2.0 license files.
 - Current recipe (unbundled) works and tests pass, so this is a judgement call → **decision for colin**.
@@ -274,3 +276,58 @@ Research agent recommends **keeping nanoarrow vendored at 0.6.0** instead:
 - [ ] Results of adversarial recipe review (4 lenses: conda-forge reviewer, build robustness, numerical fidelity vs upstream wheel, maintainability).
 - [ ] nanoarrow vendored vs unbundled decision.
 - [ ] Upstream contact (co-maintainer, sdist, duckdb bug, LC_ALL=C bug, gnu17, UTF-8 sources).
+
+---
+
+## 8. Adversarial review results (2026-10-15)
+
+4 independent reviewer agents, each with one lens, then a skeptic agent per serious finding trying to refute it. **No blockers.** All scratch evidence/scripts: Claude's scratchpad `review/<lens>/` (session-local).
+
+### Headline results
+- **Fidelity: our build = upstream PyPI wheel, bit for bit.** About **3.1 million output cells compared, 0 differences** (float bit patterns, null masks, schemas), all 9 procedures:
+  - upstream test suite (en + fr), all 15 `conversion_examples`, randomized float stress tests (N up to 5000, several seeds), edge-case params (1-ULP values, extreme seeds, 1e300);
+  - random-seeded procs made reproducible by pinning `time()`; negative control (1-ULP change) was detected;
+  - C console logs byte-identical in en and fr, except the "Created on <date>" line (build time).
+  - Compiler check: no FMA, no AVX, no reassociated float reductions; same glibc math symbols; asserts on in both; no fast-math.
+- **Build robustness: sound in conda-forge's CI image.** Toolchain reaches every sub-make, `-j` safe (also stress-tested with random make shuffle), exported symbols same as wheel, no undefined symbols, max glibc symbol 2.17, French strings byte-identical, GitHub tarball reproducible locally:
+  `git archive --format=tar --prefix=gensol-banff-<v>/ <v> | gzip -n -6 | sha256sum` → gives GitHub's sha256 (handy for future version bumps).
+- **conda-forge reviewer: would pass.** Lint clean (except sandbox-only maintainer check), license expression verified against symbols actually linked, GLPK vendoring reason holds, no existing banff on conda-forge/bioconda.
+- **Maintainability: good shape.** Patch will likely apply to next release (patched Makefiles unchanged since 3.1.1). libnanoarrow: keep unbundled (simulated 0.10 release still solves). Upstream has had no commits since 2025-06-02; 2 dependabot PRs open (pyarrow<24, nanoarrow<0.9).
+
+### Fixes applied (commit `f2298ec6` + `a2a9ad57`, PR #2)
+| Finding | Severity (verified) | Fix |
+|---|---|---|
+| `duckdb <1.4` pin: blocks co-install with 11 conda-forge pkgs needing ≥1.4, also blocks py3.14 | **major** | patch 0002 `.arrow()` → `.to_arrow_table()` (3 sites), restore `<2`; tests now run with duckdb 1.5.6 |
+| Recipe test shipped ~6 MB of upstream test data in every install | minor | only `Python/tests/**/*.py` + `pytest.ini` → package **4.5 MB → 2.1 MB** |
+| `skip: not linux` didn't exclude aarch64/ppc64le | minor | `skip: not (linux and x86_64)` |
+| AMD/COLAMD copyright + notice-retention terms not packaged | minor | added `licenses/AMD_README.txt`, `COLAMD_README.txt` (GLPK 4.53) |
+| build.sh silently overrides upstream flags if they change | minor | guard: fail if `MakeDefaults` line differs |
+| Empty submodule dirs on `-I` path could shadow conda headers | minor | `rmdir` guard |
+| `CPPFLAGS` omission also drops `_FORTIFY_SOURCE` | minor | documented (upstream doesn't use it either) |
+| PyPI `duckdb` = conda `python-duckdb` | minor | renamed run dep |
+| `-W ignore::SyntaxWarning`, locale comment | minor | dropped / reworded |
+| CRLF patch breaks if hand-edited | minor | recipe comment: regenerate with `git apply --3way` + `git diff` |
+| Fork CI hid curl failures; Node 20 warning | minor | download-then-hash; checkout@v5 |
+
+### Not applied (judgement calls, noted for later)
+- **`-ffp-contract=off`**: no-op on linux-64 today (no FMA in `-march=nocona`); add if aarch64 is ever enabled (aarch64 has FMA → rounding would differ from upstream x86 wheel).
+- **aarch64 support**: needs patch to drop `-m64` and make `ldd` non-fatal, plus cross-python. Skipped for now.
+- **Link libnanoarrow statically** (`libnanoarrow_static.a`, like upstream): possible, avoids the exact-version run_export. Kept dynamic (conda-forge preference; no practical conflict today).
+- **One Python-independent package instead of 3**: the C libs don't depend on Python; possible but unusual for reviewers.
+- **build.sh re-run idempotency**: not an issue in CI (fresh source per variant).
+- **Separate branch for the staged-recipes PR**: the fork-only workflow file must NOT go upstream → create the real PR from a fresh branch with only `recipes/banff/`:
+  `git checkout -b banff upstream/main && git checkout claude/banff-conda-feedstock-9ueg9w -- recipes/banff`
+
+### 🐛 More upstream bugs found (report to StatCan/gensol-banff)
+1. **duckdb ≥1.4** breaks `exclude_where_*` (3-line fix = our patch 0002).
+2. **French "BY variable not in data set" warning = format-string bug** → segfault (or GB-sized log) in French mode. `IO_Messages_fr.h:35` has `%8b.%*s` where English has `%*s`. Upstream wheel segfaults too (9 tests in fr mode). Not patched in recipe (parity with upstream); report upstream.
+3. **`import banff` crashes under `LC_ALL=C`** (`nls.py:124`, `None.lower()`).
+4. **GLPK 4.53 doesn't compile as C23** (GCC 15 default) → upstream needs `-std=gnu17` too.
+5. (Typo) French message "dans lees équations".
+
+### Top 5 things to watch as maintainer (plain words, from maintainability review)
+1. **Bot PR fails with "Hunk FAILED"** → upstream changed a Makefile. Regenerate patch from a fresh checkout of the new tag with `git diff`; never hand-edit the `.patch` (hidden CRLF). If build.sh stops with "upstream MakeDefaults changed" → upstream changed flags/encoding; read it before changing anything.
+2. **Every release**: compare `dependencies` in `Python/pyproject.toml` with the recipe `run:` list. If upstream raises pyarrow/nanoarrow caps → drop the py3.14 skip. If upstream fixes duckdb → drop patch 0002.
+3. **duckdb**: getting the 3-line fix upstream is the most useful upstream contribution.
+4. **libnanoarrow**: usually nothing to do. Only if a user can't install banff next to something needing newer libnanoarrow → bump `build.number` (rebuilds against newest). If that fails to compile → ask for help.
+5. **Tests fail in a bot PR** → first run the same tests against upstream's PyPI wheel in an identical env. If the wheel fails too → upstream/environment problem, not the recipe.
