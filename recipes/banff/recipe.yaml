@@ -9,7 +9,7 @@ package:
 source:
   # No sdist on PyPI (wheels only), so build from the GitHub release tag.
   # The tag tarball does not contain the jansson / nanoarrow git submodules;
-  # those come from conda-forge instead (see patch).
+  # those come from conda-forge instead (see patch 0001).
   # GLPK stays bundled on purpose: it is a StatCan-patched GLPK 4.53 (conda-forge
   # has 5.0), and a different LP solver version can change error-localization
   # results, which must match upstream's builds for official statistics.
@@ -18,16 +18,26 @@ source:
   patches:
     # Use the conda toolchain ($CC, $AR, $LDFLAGS) instead of hardcoded gcc/ld/ar,
     # and link against conda-forge jansson + libnanoarrow instead of building
-    # the (absent) git submodules.
+    # the (absent) git submodules. banff passes data to pyarrow / nanoarrow
+    # through the stable Arrow C Data Interface, so libnanoarrow 0.9 (C) works
+    # with Python nanoarrow <0.7.
+    # Contains CRLF hunks (upstream's Makefile and make_proc are CRLF): never edit
+    # it by hand; re-apply it to the new tag with `git apply --3way` and
+    # regenerate it with `git diff`.
     - patches/0001-build-with-conda-toolchain-and-external-jansson-nanoarrow.patch
+    # duckdb >=1.4: `.arrow()` returns a RecordBatchReader instead of a Table,
+    # which breaks the `exclude_where_*` options. `.to_arrow_table()` returns a
+    # Table on every duckdb >=0.7. Drop once fixed upstream.
+    - patches/0002-duckdb-1.4-to_arrow_table.patch
 
 build:
   number: 0
   skip:
-    # macOS: banff's library loader only handles Linux and Windows
-    #   (Python/src/banff/_common/src/proc/loader.py).
+    # Linux x86_64 only: the Makefiles pass -m64, and banff's library loader
+    # only handles Linux and Windows, from bin/<os>/x64
+    # (Python/src/banff/_common/src/proc/loader.py).
     # Windows: upstream builds with Visual Studio solution files; not ported yet.
-    - not linux
+    - not (linux and x86_64)
     # The upstream caps pyarrow <19 and nanoarrow <0.7 have no Python 3.14 builds.
     - match(python, ">=3.14")
 
@@ -48,9 +58,7 @@ requirements:
     - pandas >=2.0.0,<3
     - pyarrow >=14.0.0,<19
     - nanoarrow >=0.5.0,<0.7
-    # Upstream allows <2, but banff 3.1.3's `exclude_where_*` options fail with
-    # duckdb >=1.4 (`.arrow()` returns a RecordBatchReader, which has no `num_rows`).
-    - duckdb >=0.7.0,<1.4
+    - python-duckdb >=0.7.0,<2
 
 tests:
   - python:
@@ -66,16 +74,18 @@ tests:
     script:
       - python check_procs.py
   # Upstream's quick test selection. Excluded: tests that need SAS-generated
-  # .sas7bdat files (not in the repo) and one that needs the fr_CA locale.
+  # .sas7bdat files (not in the repo) and test_numeric_locale, which needs a
+  # French system locale that the CI image doesn't have.
   - files:
       source:
-        - Python/tests/
+        - Python/tests/**/*.py
+        - Python/tests/pytest.ini
     requirements:
       run:
         - pytest
     script:
       - cd Python/tests
-      - pytest -p no:cacheprovider -m "m_auto_pass and not m_needs_sas_data and not m_sas_dataset" -k "not test_numeric_locale" -W ignore::SyntaxWarning
+      - pytest -p no:cacheprovider -m "m_auto_pass and not m_needs_sas_data and not m_sas_dataset" -k "not test_numeric_locale"
 
 about:
   homepage: https://github.com/StatCan/gensol-banff
@@ -91,11 +101,14 @@ about:
   # zlib 1.2.5 (Zlib), all linked statically into banff's shared libraries.
   # The bundled copies ship without their license files; the texts under
   # licenses/ are copied from the GNU GLPK 4.53 release tarball (AMD, COLAMD,
-  # MiniSat) and from the bundled zlib.h.
+  # MiniSat: COPYING/LICENSE plus the AMD/COLAMD README notices) and from the
+  # bundled zlib.h.
   license: GPL-3.0-or-later AND LGPL-2.1-or-later AND MIT AND Zlib
   license_file:
     - LICENSE
     - licenses/LGPL-2.1_AMD_COLAMD.txt
+    - licenses/AMD_README.txt
+    - licenses/COLAMD_README.txt
     - licenses/MIT_MiniSat.txt
     - licenses/Zlib_zlib.txt
 

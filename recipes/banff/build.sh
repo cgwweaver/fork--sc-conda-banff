@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
+# The flags below replace upstream's DEFAULT_C_FLAGS, and the transcode step
+# assumes CP1252 sources: stop if upstream changes either.
+grep -qxF 'export DEFAULT_C_FLAGS = -O3 -finput-charset=WINDOWS-1252 -fexec-charset=UTF-8' \
+  C/build/unix-like/make_include/MakeDefaults \
+  || { echo "upstream MakeDefaults changed: review DEFAULT_C_FLAGS and the CP1252 transcode in build.sh" >&2; exit 1; }
+
 # Upstream compiles with `-finput-charset=WINDOWS-1252 -fexec-charset=UTF-8`
 # (French messages in the C sources are CP1252). conda-forge's GCC is built
 # without iconv and rejects that flag, so transcode the sources to UTF-8 here
@@ -14,8 +20,9 @@ for path in pathlib.Path("C").rglob("*"):
             path.write_bytes(data.decode("cp1252").encode("utf-8"))
 EOF
 
-# jansson and nanoarrow come from conda-forge. Their submodule directories must
-# stay empty: the Makefiles still put them on the -I path, ahead of $PREFIX/include.
+# jansson and nanoarrow come from conda-forge. Remove their (empty) submodule
+# directories: rmdir fails if they are ever non-empty, since the Makefiles still
+# put them on the -I path, ahead of $PREFIX/include.
 rmdir C/libraries/_submodules/jansson C/libraries/_submodules/arrow-nanoarrow
 
 # Notes on the flags:
