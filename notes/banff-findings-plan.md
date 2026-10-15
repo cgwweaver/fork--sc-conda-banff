@@ -331,3 +331,14 @@ Research agent recommends **keeping nanoarrow vendored at 0.6.0** instead:
 3. **duckdb**: getting the 3-line fix upstream is the most useful upstream contribution.
 4. **libnanoarrow**: usually nothing to do. Only if a user can't install banff next to something needing newer libnanoarrow → bump `build.number` (rebuilds against newest). If that fails to compile → ask for help.
 5. **Tests fail in a bot PR** → first run the same tests against upstream's PyPI wheel in an identical env. If the wheel fails too → upstream/environment problem, not the recipe.
+
+---
+
+## 9. Recipe vs older Banff releases (2026-10-15)
+
+Only `3.1.3` is a git tag, but the full history has three releases as merged commits (15 commits total): **3.1.1** (`611a706`), **3.1.2** (`4ddd295`), **3.1.3** (`2db2304`). PyPI only has 3.1.3.
+
+- **Code changes 3.1.1 → 3.1.3:** none in C code, Makefiles or submodule pins. Only version strings, docs and `pyproject.toml`.
+- **Dependency caps changed in 3.1.2:** 3.1.1 had `pyarrow>=14.0.0` and `duckdb>=0.7.0` with **no upper bounds**; 3.1.2 added `pyarrow<19` and `duckdb<2`. Worth asking upstream whether that was an observed breakage or a precaution.
+- **Recipe robustness:** both patches apply, the `MakeDefaults` guard passes, and the recipe builds and passes all tests (pip check, 9 procs en+fr, 423 upstream tests, py312) for **3.1.1 and 3.1.2 unchanged**. Only the version and sha were changed.
+- **Tarball sha reproducible locally:** `git archive --format=tar --prefix=gensol-banff-<v>/ <commit> | gzip -n -6 | sha256sum` gives GitHub's sha for 3.1.3 (`365f1839…`). For untagged releases there is no GitHub tag tarball, so conda-forge can only package tagged versions (fine: only the latest matters).
