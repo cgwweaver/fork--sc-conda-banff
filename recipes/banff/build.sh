@@ -14,9 +14,14 @@ for path in pathlib.Path("C").rglob("*"):
             path.write_bytes(data.decode("cp1252").encode("utf-8"))
 EOF
 
+# jansson and nanoarrow come from conda-forge. Their submodule directories must
+# stay empty: the Makefiles still put them on the -I path, ahead of $PREFIX/include.
+rmdir C/libraries/_submodules/jansson C/libraries/_submodules/arrow-nanoarrow
+
 # Notes on the flags:
 # - $CPPFLAGS is left out on purpose: it carries -DNDEBUG, and upstream keeps
-#   C asserts enabled. $CFLAGS already has `-isystem $PREFIX/include`.
+#   C asserts enabled (this also drops -D_FORTIFY_SOURCE=2, which upstream's
+#   builds don't use either). $CFLAGS already has `-isystem $PREFIX/include`.
 # - -std=gnu17: the bundled GLPK 4.53 typedefs `bool`, a keyword in C23 (the
 #   default from GCC 15); gnu17 is the default of upstream's own compiler.
 # - -O3 is upstream's optimisation level (comes after $CFLAGS' -O2, so it wins).

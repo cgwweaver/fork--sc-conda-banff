@@ -28,7 +28,7 @@ jobs:
       run:
         shell: bash -el {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: mamba-org/setup-micromamba@v2
         with:
@@ -45,7 +45,9 @@ jobs:
         run: |
           version=$(sed -n 's/^  version: "\(.*\)"$/\1/p' recipes/banff/recipe.yaml | head -1)
           url="https://github.com/StatCan/gensol-banff/archive/refs/tags/${version}.tar.gz"
-          sha=$(curl -sSfL "$url" | sha256sum | cut -d' ' -f1)
+          curl -sSfL -o src.tar.gz "$url"
+          sha=$(sha256sum src.tar.gz | cut -d' ' -f1)
+          rm src.tar.gz
           echo "sha256 of ${url}: ${sha}" | tee -a "$GITHUB_STEP_SUMMARY"
           sed -i "s/TODO_REPLACE_WITH_GITHUB_TARBALL_SHA256/${sha}/" recipes/banff/recipe.yaml
 
