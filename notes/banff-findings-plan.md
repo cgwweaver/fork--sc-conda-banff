@@ -323,7 +323,7 @@ Research agent recommends **keeping nanoarrow vendored at 0.6.0** instead:
 2. **French "BY variable not in data set" warning = format-string bug** → segfault (or GB-sized log) in French mode. `IO_Messages_fr.h:35` has `%8b.%*s` where English has `%*s`. Upstream wheel segfaults too (9 tests in fr mode). Not patched in recipe (parity with upstream); report upstream.
 3. **`import banff` crashes under `LC_ALL=C`** (`nls.py:124`, `None.lower()`).
 4. **GLPK 4.53 doesn't compile as C23** (GCC 15 default) → upstream needs `-std=gnu17` too.
-5. (Typo) French message "dans lees équations".
+5. ~~(Typo) French message "dans lees équations".~~ *Correction: not a typo. The source (`MessageLPI_fr.h:13`) says "dans les équations"; "lees" was an artifact of extracting strings from the compiled binary.*
 
 ### Top 5 things to watch as maintainer (plain words, from maintainability review)
 1. **Bot PR fails with "Hunk FAILED"** → upstream changed a Makefile. Regenerate patch from a fresh checkout of the new tag with `git diff`; never hand-edit the `.patch` (hidden CRLF). If build.sh stops with "upstream MakeDefaults changed" → upstream changed flags/encoding; read it before changing anything.
