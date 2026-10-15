@@ -14,7 +14,7 @@ source:
   # has 5.0), and a different LP solver version can change error-localization
   # results, which must match upstream's builds for official statistics.
   url: https://github.com/StatCan/gensol-banff/archive/refs/tags/${{ version }}.tar.gz
-  sha256: TODO_REPLACE_WITH_GITHUB_TARBALL_SHA256
+  sha256: 365f183988f52bb46e8ed2b1c73eaefee01e876e72f25dbd72598d796d21eb53
   patches:
     # Use the conda toolchain ($CC, $AR, $LDFLAGS) instead of hardcoded gcc/ld/ar,
     # and link against conda-forge jansson + libnanoarrow instead of building
