@@ -33,7 +33,7 @@ Status: **scoping / info gathering**. Nothing built yet. Notes-only branch, not 
 |---|---|---|---|
 | `jansson` | real git submodule (akheron/jansson) | yes, `jansson` 2.15.1 | candidate to unbundle |
 | `arrow-nanoarrow` | real git submodule (apache/arrow-nanoarrow) | yes, `libnanoarrow` 0.9.0 | candidate to unbundle; version match? |
-| `stc-glpk` | **vendored copy** (plain dir, not submodule) | `glpk` 5.0 exists | "stc-" prefix → may be StatCan-modified. Must diff vs upstream GLPK 5.0 before unbundling |
+| `stc-glpk` | **vendored copy** (plain dir, not submodule) | `glpk` 5.0 exists | **GLPK 4.53 (2014)**, flattened dir layout + `STC_GLPK_ONEDIR` ifdefs (build tweaks). 66 files differ vs 5.0. See §5 Q5 |
 | `STC_C_Libraries` | vendored (CommonAPI, IOUtilities, LPInterface) | n/a | StatCan's own code, stays bundled (fine) |
 
 - **GitHub tag tarballs do NOT include submodule contents** → `jansson` + `nanoarrow` dirs will be empty. Options:
@@ -70,7 +70,7 @@ Status: **scoping / info gathering**. Nothing built yet. Notes-only branch, not 
 
 - [ ] How does Python pkg load the C procs? ctypes `.so`/`.dll`? → decides noarch-ish vs per-Python builds
 - [ ] en + fr: both libs shipped in one package? (assume yes)
-- [ ] `stc-glpk` modified vs upstream GLPK?
+- [x] `stc-glpk` modified vs upstream GLPK? → it's 4.53 + StatCan build ifdefs; diff vs pristine 4.53 still TBD
 - [ ] Which nanoarrow C version does banff need vs conda-forge `libnanoarrow` 0.9?
 - [ ] Does banff actually break with pyarrow >=19 / pandas 3, or are pins just "untested"? (ask upstream)
 - [ ] Windows: VS/MSBuild path in conda-forge env feasible? macOS: does unix Makefile work with clang?
@@ -101,3 +101,98 @@ Once merged, a `banff-feedstock` repo is created; maintainers get commit access.
 - **Issues** on feedstock from users.
 - Realistic load: a few bot PRs/year, most "click merge". Occasional real fix. Upstream co-maintainers strongly reduce risk.
 - Can step down later (open PR removing self from `recipe-maintainers`); conda-forge core can help orphaned feedstocks, but slowly.
+
+---
+
+## 5. Questions for upstream: context, pros/cons
+
+Six questions. Ordered by how much they change the recipe.
+"Our preferred answer" = what makes the recipe simplest / most likely to be accepted.
+
+### Q1. Do they want banff on conda-forge at all?
+
+- **Why ask**: it's their software. Packaging without asking is allowed (GPL), but rude, and conda-forge reviewers often ask "is upstream aware?".
+- **Pros for them**:
+  - `conda install banff` for users in conda/mamba/pixi envs (common in gov/academia, incl. StatCan's own Jupyter/Kubeflow envs, via Artifactory conda mirrors).
+  - conda solver handles pyarrow/pandas/duckdb compat properly, no pip+conda mixing.
+  - Free multi-OS build CI they don't have to run (incl. macOS, which they don't ship today).
+  - Their C libs get rebuilt automatically for new Pythons/compilers.
+- **Cons for them**:
+  - Another channel where users file bugs ("conda version broken").
+  - Versions on conda may lag PyPI by days (bot PR → merge).
+  - Their pins (pyarrow<19 etc.) become visible pain → pressure to relax.
+  - Possible StatCan policy angle: is publishing on a 3rd-party channel OK officially? (Probably fine: it's already public on PyPI/GitHub under GPL.)
+- **If "no"**: we can still do it, but I'd reconsider. Without upstream buy-in, every break lands on you.
+
+### Q2. Will someone upstream co-maintain the feedstock?
+
+- **What it means**: their GitHub username in `recipe-maintainers` → write access to `banff-feedstock`, pinged on bot PRs/issues. No obligation to *do* anything; just able to.
+- **Pros**:
+  - They know the C build. When a compiler/Python bump breaks it, they fix in minutes what would take you (+LLM) hours.
+  - They can merge version bumps right after releasing → no lag.
+  - Reviewers trust a recipe with upstream maintainers much more → faster acceptance. Strongly helps the "LLM-assisted PR" concern.
+- **Cons**:
+  - Their time; GitHub notifications.
+  - Possibly needs manager OK at StatCan (time on external project).
+- **Middle ground**: listed as maintainer but "best effort", you handle routine merges. Very common.
+
+### Q3. Would they publish an sdist (source tarball) on PyPI?
+
+- **Background**: PyPI currently has only built wheels. An sdist = `banff-3.1.3.tar.gz` with full source. `python -m build --sdist`, ~one line in their release workflow.
+- **Why it matters**:
+  - GitHub tag tarball **omits git submodules** (jansson, nanoarrow) → recipe needs 3 `source:` entries pinned to exact submodule commits, and must be updated by hand every time they bump a submodule. Bot can't do that.
+  - An sdist that includes submodule contents → single source, bot auto-updates cleanly.
+  - Also helps pip users on platforms without a wheel (macOS, Linux ARM): pip can build from source.
+- **Pros**: simpler recipe, less maintenance, smoother bot bumps, benefits pip users too.
+- **Cons for them**: sdist must actually build from scratch (needs `MANIFEST.in`/build to include C sources + submodules). Current build is Makefile → setuptools, so may need some work. Possible sdist build failures reported by pip users.
+- **If "no"**: workable, just more manual. (Alternative: if they unbundle per Q5 for jansson/nanoarrow, submodules no longer matter, GitHub tarball is enough.)
+
+### Q4. Can the upper pins be relaxed? (pyarrow<19, pandas<3, nanoarrow<0.7)
+
+- **Background**: conda-forge currently has pyarrow 25, pandas 3.x, nanoarrow 0.9.
+- **Why it matters**:
+  - Environment conflicts: banff forces pyarrow ≤18 → can't coexist with anything needing newer pyarrow (e.g. recent polars/duckdb/geopandas versions over time). Users get "unsolvable" or silent downgrades.
+  - New Pythons: old pyarrow builds don't exist for new Python versions (likely 3.14+) → banff uninstallable there; recipe test fails when conda-forge adds a new Python.
+- **Key sub-question**: *real breakage or just untested?* Pyproject comments say: pandas 3 "untested", nanoarrow "adjust for each release". If untested → ask them to run their test suite against latest and bump.
+- **Options**:
+  - Upstream relaxes pins in a new release (best).
+  - conda-forge recipe loosens pins itself (allowed, common, but risky: we ship combinations upstream never tested; needs tests in recipe to catch breaks).
+  - Keep pins (simplest, but install conflicts grow over time).
+- **Pros of relaxing**: works in modern envs, new Pythons. **Cons**: possible real bugs with new pyarrow/pandas (pandas 3 had big changes: copy-on-write, string dtype) → statistical output risk. For an official StatCan tool, they may (reasonably) be conservative.
+
+### Q5. Any objection to using conda-forge's jansson / nanoarrow / GLPK instead of bundled copies?
+
+- **Background**: conda-forge prefers "unbundling": link against shared conda-forge libs instead of compiling private copies. Reviewers usually ask.
+- **Per library**:
+
+| Lib | Bundled | conda-forge | Verdict |
+|---|---|---|---|
+| jansson (JSON) | git submodule, some commit | 2.15.1 | **unbundle likely fine**: stable C API, low risk |
+| nanoarrow C (Arrow C data) | git submodule, some commit | libnanoarrow 0.9.0 | **probably fine**, but nanoarrow still pre-1.0 → API changes between versions; check which version banff uses |
+| GLPK (LP solver) | **4.53 from 2014**, StatCan tweaks | 5.0 | **keep bundled** (see below) |
+
+- **GLPK, why keep bundled**:
+  - 4.53 → 5.0 = 7 years of changes; 5.0 removed deprecated APIs → banff may not compile against it.
+  - LP solver version changes can change **numerical results** (different pivoting / tie-breaking → different but equally-optimal solutions). Banff uses LP for error localization (Errorloc) → different imputation results. For official statistics, reproducibility vs. the PyPI/SAS version matters a lot.
+  - conda-forge accepts bundling when justified ("patched/old version required, results must match upstream"). Document it in recipe comments + license file.
+- **Pros of unbundling**: smaller pkg, security/bug fixes via shared libs, reviewer-happy, removes submodule problem (Q3) entirely.
+- **Cons**: Makefile patches (we maintain those patches, they can break on every banff release), risk of behaviour differences, testing burden.
+- **Ask upstream**: are jansson/nanoarrow versions pinned for a reason? Would they accept a Makefile option like `USE_SYSTEM_JANSSON=1` upstream (so conda doesn't carry patches)?
+
+### Q6. Linux/macOS/Windows build support: will they help / accept patches?
+
+- **Background**: Linux = Makefile, Windows = Visual Studio `.sln` (not used by conda-forge's normal toolchain easily), macOS = never built by upstream.
+- **Why it matters**: conda-forge expects all OSes unless skipped with a reason.
+- **Ask**:
+  - Has anyone built on macOS? Known issues?
+  - Would they accept small portability patches upstream (e.g. Makefile honouring `$CC`/`$CFLAGS`/`$PREFIX`, clang fixes)?
+  - Windows: OK to build via MSBuild in conda env, or would they consider CMake long-term? (Don't push CMake; just ask.)
+- **Pros of upstreaming patches**: recipe stays clean, no carried patches. **Cons**: their review time; release cycle delays.
+- **Fallback**: start Linux(+macOS if easy), `skip: win` with comment, add Windows later.
+
+### Suggested message structure (email / GitHub issue)
+1. Who you are (StatCan colleague / user), what you want (conda-forge package), that it's a volunteer side effort.
+2. Transparency: recipe drafted with LLM (Claude Code) help; you're not a C build expert; want their input.
+3. Q1 + Q2 (yes/no-ish), then Q3–Q6 (technical, can answer later or async).
+4. Link to draft recipe once it exists.
+- Channel: GitHub issue on StatCan/gensol-banff (public, discoverable) **or** email Banff Support (`statcan.banff-banff.statcan@statcan.gc.ca`). As a StatCan employee, maybe internal email/Teams first, then public issue.
