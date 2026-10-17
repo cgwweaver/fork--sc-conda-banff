@@ -1,0 +1,126 @@
+diff --git a/C/build/unix-like/Makefile b/C/build/unix-like/Makefile
+index ede20fd..8f75c96 100644
+--- a/C/build/unix-like/Makefile
++++ b/C/build/unix-like/Makefile
+@@ -156,11 +156,7 @@ libs_internal:
+ .PHONY: libs_open_source
+ libs_open_source:
+ 	@echo ""
+-	@echo "## Building Jansson"
+-	cd $(DIR_JANSSON)   && $(MAKE) static
+-	@echo ""
+-	@echo "## Building Arrow"
+-	cd $(DIR_ARROW)   && $(MAKE)
++	@echo "## Using external jansson and nanoarrow"
+ 	
+ .PHONY: diagnose
+ diagnose:
+diff --git a/C/build/unix-like/make_include/make_proc b/C/build/unix-like/make_include/make_proc
+index 297b209..0319953 100644
+--- a/C/build/unix-like/make_include/make_proc
++++ b/C/build/unix-like/make_include/make_proc
+@@ -81,20 +81,16 @@ LST_CF_INCLUDE = -I$(DIR_SRC_ROOT) $(foreach fd, $(LST_SRC_SUBDIR), -I$(DIR_SRC_
+ LST_CF_INCLUDE     += -I./ $(addprefix -I, $(LST_DP_EXTRA_HEADER))
+ 
+ # build C linker (ld) flags (options)
+-LDOPTS = -shared -Bsymbolic -lc -lm
++LDOPTS = -shared -Wl,-Bsymbolic $(LDFLAGS)
+ # add path to jansson library
+-LDOPTS += -L $(DIR_JANSSON_SRC)/src/.libs
+-LDOPTS += -L /usr/lib/gcc/x86_64-redhat-linux/8/
+ # add path to arrow library
+-LDOPTS += -L $(DIR_ARROW)/build/
+ # programatically add paths for STC libraries to LDOPTS
+ # --*-group used to resolve circular dependency issues
+-LDOPTS += --start-group
++LDOPTS += -Wl,--start-group
+ LDOPTS += $(LST_FP_LIBS)
+-LDOPTS += --end-group
++LDOPTS += -Wl,--end-group
+ # force libraries to link statically 
+-LDOPTS += -l:libjansson.a
+-LDOPTS += -l:libnanoarrow.a
++LDOPTS += -ljansson -lnanoarrow_shared -lm
+ # openmp (aka "open mp", "omp"): disabled, reenable with `LDOPTS += -lgomp`
+ 
+ ##### DEFINE CALLABLE BUILD TARGETS ###########################################
+@@ -119,12 +115,12 @@ shared: $(DP_BIN)$(TARGET_SHARED)
+ ## STATIC: Archive objects
+ $(DP_BIN)$(TARGET_STATIC): $(LST_FP_OBJS) $(LST_FP_LIBS)
+ 	mkdir -p $(@D)
+-	ar -crs $@ $(LST_FP_OBJS)
++	$(AR) -crs $@ $(LST_FP_OBJS)
+ 
+ ## SHARED: Link objects
+ $(DP_BIN)$(TARGET_SHARED): $(LST_FP_OBJS) $(LST_FP_LIBS)
+ 	mkdir -p $(@D)
+-	$(LD) -o $@ $(LST_FP_OBJS) $(LDOPTS)
++	$(CC) -o $@ $(LST_FP_OBJS) $(LDOPTS)
+ 
+ ## COMPILE PROPER (i.e. without linking) the source code
+ # NOTE: headers listed in prereqs so updates to header files cause rebuild
+diff --git a/C/libraries/BanffAPI/Makefile b/C/libraries/BanffAPI/Makefile
+index 6531bee..85ee8c0 100644
+--- a/C/libraries/BanffAPI/Makefile
++++ b/C/libraries/BanffAPI/Makefile
+@@ -70,7 +70,7 @@ shared: $(DP_BIN)$(TARGET_SHARED)
+ # STATIC: Archive objects
+ $(DP_BIN)$(TARGET_STATIC): $(LST_FP_OBJS)
+ 	mkdir -p $(@D)
+-	ar -crs $@ $(LST_FP_OBJS)
++	$(AR) -crs $@ $(LST_FP_OBJS)
+ 
+ # SHARED: Link objects
+ $(DP_BIN)$(TARGET_SHARED): $(LST_FP_OBJS)
+diff --git a/C/libraries/CommonAPI/Makefile b/C/libraries/CommonAPI/Makefile
+index 918dbd4..62e7abb 100644
+--- a/C/libraries/CommonAPI/Makefile
++++ b/C/libraries/CommonAPI/Makefile
+@@ -65,7 +65,7 @@ shared: $(DP_BIN)$(TARGET_SHARED)
+ # STATIC: Archive objects
+ $(DP_BIN)$(TARGET_STATIC): $(LST_FP_OBJS)
+ 	mkdir -p $(@D)
+-	ar -crs $@ $(LST_FP_OBJS)
++	$(AR) -crs $@ $(LST_FP_OBJS)
+ 
+ # SHARED: Link objects
+ $(DP_BIN)$(TARGET_SHARED): $(LST_FP_OBJS)
+diff --git a/C/libraries/IOUtilities/Makefile b/C/libraries/IOUtilities/Makefile
+index 1d3b15e..469043c 100644
+--- a/C/libraries/IOUtilities/Makefile
++++ b/C/libraries/IOUtilities/Makefile
+@@ -73,7 +73,7 @@ shared: $(DP_BIN)$(TARGET_SHARED)
+ # STATIC: Archive objects
+ $(DP_BIN)$(TARGET_STATIC): $(LST_FP_OBJS)
+ 	mkdir -p $(@D)
+-	ar -crs $@ $(LST_FP_OBJS)
++	$(AR) -crs $@ $(LST_FP_OBJS)
+ 
+ # SHARED: Link objects
+ $(DP_BIN)$(TARGET_SHARED): $(LST_FP_OBJS)
+diff --git a/C/libraries/LPInterface/Makefile b/C/libraries/LPInterface/Makefile
+index 8e8dcfa..ee51e50 100644
+--- a/C/libraries/LPInterface/Makefile
++++ b/C/libraries/LPInterface/Makefile
+@@ -65,7 +65,7 @@ shared: $(DP_BIN)$(TARGET_SHARED)
+ # STATIC: Archive objects
+ $(DP_BIN)$(TARGET_STATIC): $(LST_FP_OBJS)
+ 	mkdir -p $(@D)
+-	ar -crs $@ $(LST_FP_OBJS)
++	$(AR) -crs $@ $(LST_FP_OBJS)
+ 
+ # SHARED: Link objects
+ $(DP_BIN)$(TARGET_SHARED): $(LST_FP_OBJS)
+diff --git a/C/libraries/glpk/Makefile b/C/libraries/glpk/Makefile
+index 0a68bed..cf055a1 100644
+--- a/C/libraries/glpk/Makefile
++++ b/C/libraries/glpk/Makefile
+@@ -60,7 +60,7 @@ shared: $(DP_BIN)$(TARGET_SHARED)
+ # STATIC: Archive objects
+ $(DP_BIN)$(TARGET_STATIC): $(LST_FP_OBJS)
+ 	mkdir -p $(@D)
+-	ar -crs $@ $(LST_FP_OBJS)
++	$(AR) -crs $@ $(LST_FP_OBJS)
+ 
+ # SHARED: Link objects
+ $(DP_BIN)$(TARGET_SHARED): $(LST_FP_OBJS)

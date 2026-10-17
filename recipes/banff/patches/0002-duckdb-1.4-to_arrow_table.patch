@@ -1,0 +1,31 @@
+diff --git a/Python/src/banff/_common/src/io_util/processing.py b/Python/src/banff/_common/src/io_util/processing.py
+index bf5c527..6abc432 100644
+--- a/Python/src/banff/_common/src/io_util/processing.py
++++ b/Python/src/banff/_common/src/io_util/processing.py
+@@ -136,7 +136,7 @@ def flag_rows_where(ds_in, where_stmt, new_col_name="_exclude", flag_value="E"):
+         if duckdb.sql(f"""
+             SELECT * FROM information_schema.columns
+             WHERE table_name='{temp_table_name}' AND LOWER(column_name)=LOWER('{new_col_name}')
+-        """).arrow().num_rows > 0:  # noqa: S608 # private temporary database, no concerns
++        """).to_arrow_table().num_rows > 0:  # noqa: S608 # private temporary database, no concerns
+             # add a random suffix
+             # Code Quality: ruff rule S311 ignored as this code is not related to security
+             import random
+@@ -151,7 +151,7 @@ def flag_rows_where(ds_in, where_stmt, new_col_name="_exclude", flag_value="E"):
+             ds_out = duckdb.sql(f"SELECT * from {temp_table_name}").df()  # noqa: S608 # private temporary database, no concerns
+             ds_out = handle_pandas_string_data(ds_out)
+         elif isinstance(ds_in, pa.Table):
+-            ds_out = duckdb.sql(f"SELECT * from {temp_table_name}").arrow()  # noqa: S608 # private temporary database, no concerns
++            ds_out = duckdb.sql(f"SELECT * from {temp_table_name}").to_arrow_table()  # noqa: S608 # private temporary database, no concerns
+     finally:
+         # free duckdb table
+         duckdb.sql(f"DROP TABLE IF EXISTS {temp_table_name}")  # noqa: S608 # private temporary database, no concerns
+@@ -233,7 +233,7 @@ def remove_rows_where(ds_in, where_stmt):
+             ds_out = duckdb.sql(f"SELECT * from {temp_table_name}").df()  # noqa: S608 # private temporary database, no concerns
+             ds_out = handle_pandas_string_data(ds_out)
+         elif isinstance(ds_in, pa.Table):
+-            ds_out = duckdb.sql(f"SELECT * from {temp_table_name}").arrow()  # noqa: S608 # private temporary database, no concerns
++            ds_out = duckdb.sql(f"SELECT * from {temp_table_name}").to_arrow_table()  # noqa: S608 # private temporary database, no concerns
+     finally:
+         # free duckdb table
+         duckdb.sql(f"DROP TABLE IF EXISTS {temp_table_name}")  # noqa: S608 # private temporary database, no concerns
